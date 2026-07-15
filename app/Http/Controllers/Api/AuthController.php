@@ -18,8 +18,40 @@ class AuthController extends Controller
         private readonly ApiTokenService $tokens,
     ) {}
 
-    public function register(): JsonResponse
+   public function register(RegisterRequest $request): JsonResponse
     {
+        $payload = DB::transaction(function () use ($request): array {
+            $isFirstUser = User::query()->count() === 0;
+
+            $user = User::query()->create([
+                'name' => $request->string('full_name')->toString(),
+                'email' => $request->string('email')->toString(),
+                'password' => Hash::make($request->string('password')->toString()),
+            ]);
+
+            $profile = Profile::query()->create([
+                'user_id' => $user->id,
+                'full_name' => $request->string('full_name')->toString(),
+            ]);
+
+            $roleName = $isFirstUser ? 'admin' : 'salesperson';
+            $role = Role::query()->firstOrCreate(['name' => $roleName]);
+            $user->roles()->syncWithoutDetaching([$role->id]);
+
+            return [$user->load(['profile.user', 'roles']), $profile, [$roleName]];
+        });
+
+        [$user, $profile, $roles] = $payload;
+
+        return response()->json([
+            'user' => [
+                'id' => $user->id,
+                'email' => $user->email,
+                'name' => $user->name,
+            ],
+            'profile' => (new ProfileResource($profile->load('user')))->resolve(),
+            'roles' => $roles,
+        ], 201);
         return ApiError::make(
             403,
             'REGISTRATION_DISABLED',
@@ -34,7 +66,7 @@ class AuthController extends Controller
             ->where('email', $request->string('email')->toString())
             ->first();
 
-        if (! $user || ! $user->is_active || ! Hash::check($request->string('password')->toString(), $user->password)) {
+        if (! $user || ! Hash::check($request->string('password')->toString(), $user->password)) {
             return ApiError::unauthorized('Invalid credentials.');
         }
 
