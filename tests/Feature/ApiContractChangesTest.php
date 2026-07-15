@@ -23,7 +23,7 @@ class ApiContractChangesTest extends TestCase
         parent::setUp();
 
         foreach (['admin', 'project_manager', 'sales_manager', 'salesperson', 'viewer'] as $name) {
-            Role::query()->create(['name' => $name]);
+            Role::query()->firstOrCreate(['name' => $name]);
         }
 
         Project::query()->create(['name' => 'Default project', 'is_default' => true]);
@@ -40,6 +40,17 @@ class ApiContractChangesTest extends TestCase
         ]);
         $this->admin->roles()->attach(Role::query()->where('name', 'admin')->value('id'), ['created_at' => now()]);
         $this->token = app(ApiTokenService::class)->issue($this->admin);
+    }
+
+    public function test_initial_admin_created_by_migration_can_log_in(): void
+    {
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'admin@tanekoru.com',
+            'password' => 'Admin123456!',
+        ])->assertOk()
+            ->assertJsonPath('token_type', 'Bearer')
+            ->assertJsonPath('user.email', 'admin@tanekoru.com')
+            ->assertJsonStructure(['access_token']);
     }
 
     public function test_public_registration_is_disabled_and_admin_can_manage_users(): void
